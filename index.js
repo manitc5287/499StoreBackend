@@ -33,10 +33,12 @@ app.use(express.json());
 const productRoutes = require("./routes/productRoutes");
 const userRoutes = require("./routes/userRoutes");
 const authRoutes = require("./routes/authRoutes");
+const storeRoutes = require("./routes/storeRoutes");
 
 app.use("/api/products", productRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/stores", storeRoutes);
 
 const connectDB = async (retries = 3) => {
   try {
