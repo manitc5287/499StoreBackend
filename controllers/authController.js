@@ -1,57 +1,35 @@
-const User = require("../models/User");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
+const authService = require("../services/authService");
 
-const generateToken = (id, role) => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-};
-
-// ✅ Register (customer only)
+// @desc    Register new user
+// @route   POST /api/auth/register
+// @access  Public
 const registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-
-    const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ message: "User already exists" });
-
-    const user = await User.create({ name, email, password, role: "customer" });
-
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      token: generateToken(user._id, user.role),
-    });
+    const userData = await authService.register(req.body);
+    res.status(201).json(userData);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(400).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };
 
-// ✅ Login (for admin + customer)
+// @desc    Login user
+// @route   POST /api/auth/login
+// @access  Public
 const loginUser = async (req, res) => {
-
-  console.log("Login attempt for email: 2", req.body.email);
-  const { email, password } = req.body;
-
   try {
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: "Invalid credentials" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      token: generateToken(user._id, user.role),
-    });
+    const userData = await authService.login(req.body);
+    res.status(200).json(userData);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(401).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };
+
 
 // ✅ Create Admin (superadmin only)
 const createAdmin = async (req, res) => {
@@ -78,4 +56,107 @@ const createAdmin = async (req, res) => {
   }
 };
 
-module.exports = { registerUser, loginUser, createAdmin };
+// Update user profile
+const updateUser = async (req, res) => {
+  try {
+    const { name, email, phone } = req.body;
+    const userId = req.params.id || req.body.userId;
+    
+    if (!name || !email || !phone) {
+      return res.status(400).json({ message: "Name, email and phone are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (email !== user.email) {
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ message: "Email already exists" });
+      }
+    }
+
+    user.name = name;
+    user.email = email;
+    user.phone = phone;
+    
+    const updatedUser = await user.save();
+    const { password: _, ...userWithoutPassword } = updatedUser.toObject();
+    
+    res.json({
+      message: "Profile updated successfully",
+      user: userWithoutPassword
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Change password
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.params.id || req.body.userId;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await user.matchPassword(currentPassword);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({ message: "Current password is incorrect" });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+    
+    res.json({
+      message: "Password changed successfully"
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Add address
+const addAddress = async (req, res) => {
+  try {
+    const { userId, addressData } = req.body;
+    
+    if (!userId || !addressData) {
+      return res.status(400).json({ message: "User ID and address data are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // If this is the first address, make it default
+    if (user.addresses.length === 0) {
+      addressData.isDefault = true;
+    }
+
+    user.addresses.push(addressData);
+    await user.save();
+
+    res.status(201).json({
+      message: "Address added successfully",
+      addresses: user.addresses
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { registerUser, loginUser };
